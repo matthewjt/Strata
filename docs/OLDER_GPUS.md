@@ -25,6 +25,7 @@ capability 6.1 too, and cannot hold any of the model).
 | --- | --- | --- | --- |
 | RX 6800 / 6900 series | gfx1030 | setup (`--backend hip`), unvalidated | [AMD_HIP.md](AMD_HIP.md#rdna2-gfx1030) |
 | RX 6700 XT | gfx1031 | setup (`--backend hip`), unvalidated (#524) | used daily by its reporter, one card |
+| RX 6600 XT | gfx1032 | setup (`--backend hip`), unvalidated | no hardware report yet |
 | RX 5500 XT (RDNA1) | gfx1012 | built by hand: `-DCMAKE_HIP_ARCHITECTURES=gfx1012` (HIP 5.7 or 7) | 8 GB card, IQ3_S, 8K prompt: 15.3 tok/s decode (#442) |
 | Instinct MI50 / MI60, Radeon VII | gfx906 (wave64) | built by hand: `-DSTRATA_HIP_GFX906=ON` | 2x MI50, Coder IQ1_M, 128K context: decode 50.1 / 47.8 / 45.7 tok/s at 4K / 32K / 128K prompt tokens, prompt ~520 tok/s (#677) |
 

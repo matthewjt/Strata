@@ -350,8 +350,10 @@ run it; the report below is from a community machine: an RX 6900 XT 16 GB (gfx10
 - **hipBLASLt:** ROCm's hipBLASLt ships no gfx1030 kernels, so there is no table and the plain hipBLAS path runs.
 - **gfx1031** (RX 6700 XT, #524): setup knows it (the `gfx103X-all` wheels, unvalidated); its reporter runs it daily
   on one card.
-- **Not validated:** gfx1032 (the same `dp4a` path, no hardware report), setup's own build path and the
-  `gfx103X-all` wheels on gfx1030, images, answer-quality benchmarks. RDNA1 (gfx1012, RX 5500 XT) builds by hand:
+- **gfx1032** (RX 6600 XT): setup knows it (the same `gfx103X-all` wheels and `dp4a` path, unvalidated); no hardware
+  report yet.
+- **Not validated:** setup's own build path and the `gfx103X-all` wheels on gfx1030, images, answer-quality
+  benchmarks. RDNA1 (gfx1012, RX 5500 XT) builds by hand:
   [OLDER_GPUS.md](OLDER_GPUS.md#amd-building-gfx906-and-gfx1012).
 
 ## gfx906 (Instinct MI50 / MI60, Radeon VII): wave64, built from source

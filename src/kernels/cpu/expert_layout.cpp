@@ -73,6 +73,39 @@ bool cpu_avx512_ok() {
     return ok;
 }
 
+bool cpu_avx512_skx_ok() {
+    // Skylake-X class: AVX512 F + BW + DQ + VL + VNNI, NOT VBMI (the kernels above use no VBMI when
+    // compiled -march=skylake-avx512).  VL is CPUID 7.0:EBX[24] and VNNI is 7.0:ECX[11] — the original
+    // gate reads VL/VNNI from the wrong registers; kept as-is for the VBMI path, fixed here.
+    static const bool ok = [] {
+        if (cpu_isa_cap() < 3) return false;
+        if (cpu_avx512_ok()) return false;                       // full-AVX-512 parts take cpu_avx512_ok()
+        unsigned r[4] = {0, 0, 0, 0};
+        auto cpuid = [&](unsigned leaf, unsigned sub) {
+            __cpuid_count(leaf, sub, r[0], r[1], r[2], r[3]);
+        };
+        cpuid(0, 0);
+        if (r[0] < 7) return false;
+        cpuid(1, 0);
+        if (!((r[2] >> 27) & 1u)) return false;                 // OSXSAVE
+        unsigned lo = 0, hi = 0;
+        __asm__ volatile("xgetbv" : "=a"(lo), "=d"(hi) : "c"(0));
+        const unsigned long long xcr0 = ((unsigned long long) hi << 32) | lo;
+        if ((xcr0 & 0xE6) != 0xE6) return false;                // the OS saves the AVX-512 state
+        cpuid(7, 0);
+        const unsigned ebx = r[1], ecx = r[2];
+        const bool f = (ebx >> 16) & 1u, dq = (ebx >> 30) & 1u, bw = (ebx >> 31) & 1u;
+        const bool vl = (ebx >> 24) & 1u, vnni = (ecx >> 11) & 1u, vbmi = (ecx >> 1) & 1u;
+        return f && dq && bw && vl && vnni && !vbmi;
+    }();
+    return ok;
+}
+
+bool cpu_avx512_kernel_ok() {
+    static const bool ok = cpu_avx512_ok() || cpu_avx512_skx_ok();
+    return ok;
+}
+
 bool cpu_avx512bw_ok() {
     static const bool ok = [] {
         if (const char* f = std::getenv("STRATA_FORCE_AVX2"); f != nullptr && f[0] == '1') return false;
@@ -355,20 +388,20 @@ void cpu_require_expert_support() {
 
 void q2_rows_any(const uint8_t* w, size_t row_bytes, int nblocks, const ActQ* const* a, int nt, float* const* out,
                  int r0, int r1) {
-    if (cpu_avx512_ok()) q2_0_gguf_rows_multi(w, row_bytes, nblocks, a, nt, out, r0, r1);
+    if (cpu_avx512_kernel_ok()) q2_0_gguf_rows_multi(w, row_bytes, nblocks, a, nt, out, r0, r1);
     else if (cpu_avx2_ok()) q2_0_gguf_rows_multi_avx2(w, row_bytes, nblocks, a, nt, out, r0, r1);
     else q2_0_gguf_rows_multi_avx1(w, row_bytes, nblocks, a, nt, out, r0, r1);   // issue #1699: the third rung
 }
 
 void q2_rows_any_legacy(const uint8_t* w, size_t row_bytes, int nblocks, const ActQ* const* a, int nt, float* const* out,
                         int r0, int r1) {
-    if (cpu_avx512_ok()) q2_0_gguf_rows_multi(w, row_bytes, nblocks, a, nt, out, r0, r1);
+    if (cpu_avx512_kernel_ok()) q2_0_gguf_rows_multi(w, row_bytes, nblocks, a, nt, out, r0, r1);
     else if (cpu_avx2_ok()) q2_0_gguf_rows_multi_avx2_legacy(w, row_bytes, nblocks, a, nt, out, r0, r1);
     else q2_0_gguf_rows_multi_avx1_legacy(w, row_bytes, nblocks, a, nt, out, r0, r1);
 }
 
 void act_quant_any(const float* x, int n, ActQ& a) {
-    if (cpu_avx512_ok()) act_quant_q8_1(x, n, a);
+    if (cpu_avx512_kernel_ok()) act_quant_q8_1(x, n, a);
     else if (cpu_avx2_ok()) act_quant_q8_1_avx2(x, n, a);
     else act_quant_q8_1_avx1(x, n, a);   // issue #1699
 }

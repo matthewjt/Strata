@@ -137,7 +137,7 @@ int native_gu_mt_min(int gu_type) {
     // and cpu_avx2_ok() comes first, so no AVX2 code runs before the check.  STRATA_IQ_MT_MIN set keeps its rule.
     // Opt-in (STRATA_IQ3S_MT1=1): it changes a lone token's IQ3_S rounding on those CPUs, so the default stays 0.1.39's.
     static const bool iq3s_one = env == nullptr && std::getenv("STRATA_IQ3S_MT1") != nullptr && cpu_avx2_ok() && std::getenv("STRATA_NO_IQ256") == nullptr &&
-                                 !cpu_avx512_ok() && iq256_gather_setting() != 0 && cpu_gather_fast();
+                                 !cpu_avx512_kernel_ok() && iq256_gather_setting() != 0 && cpu_gather_fast();
     return iq3s_one && gu_type == 21 ? 1 : mt_min;
 }
 
@@ -148,7 +148,7 @@ void native_gu_rows(const NativeFmt& f, const uint8_t* blob, const void* const* 
     // first, then the AVX-2 one (Zen 2/3, Intel 12th-14th gen).  STRATA_NO_IQ512 drops an AVX-512 CPU to the
     // AVX-2 kernel, STRATA_NO_IQ256 drops the AVX-2 kernel; ggml-cpu's single-token vec_dot is reached only with
     // both set (and on a CPU without AVX-512, STRATA_NO_IQ512 changes nothing).
-    static const bool avx512 = cpu_avx512_ok() && std::getenv("STRATA_NO_IQ512") == nullptr;
+    static const bool avx512 = cpu_avx512_kernel_ok() && std::getenv("STRATA_NO_IQ512") == nullptr;
     // STRATA_NO_IQ256 drops the AVX-2 kernel.  cpu_avx2_ok() is ALSO required: iq_avx2.cpp and kq_avx2.cpp
     // are compiled /arch:AVX2 and use AVX2 and FMA3, so calling them on a CPU without either is an
     // illegal instruction, not a slow path.  The gate sat next to `avx512` above, which does test
@@ -174,7 +174,7 @@ void native_gu_rows(const NativeFmt& f, const uint8_t* blob, const void* const* 
     }();
     // only where ggml's dot runs today (below the #152 multi-token rule): with STRATA_IQ_MT_MIN=1 a lone token keeps the
     // multi-token kernel, so a token's rows still do not depend on how many tokens share its expert
-    if (exact_one && nt == 1 && nt < native_gu_mt_min(f.gu_type) && avx2 && !cpu_avx512_ok() &&
+    if (exact_one && nt == 1 && nt < native_gu_mt_min(f.gu_type) && avx2 && !cpu_avx512_kernel_ok() &&
         (f.gu_type == 16 || f.gu_type == 17 || f.gu_type == 18 || f.gu_type == 21 || f.gu_type == 22)) {
         static std::once_flag announced;
         std::call_once(announced, [] { std::fprintf(stderr, "strata ab: GATE=STRATA_CPU_IQ_ALL_EXACT1 active=1\n"); });
@@ -193,7 +193,7 @@ void native_gu_rows(const NativeFmt& f, const uint8_t* blob, const void* const* 
     // A format with only an AVX-2 kernel (IQ4_XS, #415) takes it on AVX-2 CPUs only: an AVX-512 CPU keeps ggml-cpu for
     // it, as before (its rows would round differently).  Each kernel only for the formats it implements: falling
     // through an empty switch would leave ff unwritten instead of falling back to ggml-cpu.
-    static const bool cpu512 = cpu_avx512_ok();
+    static const bool cpu512 = cpu_avx512_kernel_ok();
     if (nt >= mt_min && (iq512_supported(f.gu_type) || (!cpu512 && iq256_supported(f.gu_type)))) {
         if (avx512 && iq512_supported(f.gu_type)) {
             iq512_gu_rows(f.gu_type, blob, f.gu_row, f.up_off, (int) f.n_embd, act, nt, ff, r0, r1);
@@ -220,7 +220,7 @@ void native_gu_rows(const NativeFmt& f, const uint8_t* blob, const void* const* 
     }
     // NVFP4 in 512-bit lanes: ggml's arithmetic, blocks decoded once per window; 1.8x at one token, 3.7x at seven
     // (nvfp4_avx512_parity). STRATA_NO_NVFP4_512 falls back to ggml-cpu.
-    static const bool nvfp4_512 = cpu_avx512_ok() && std::getenv("STRATA_NO_NVFP4_512") == nullptr;
+    static const bool nvfp4_512 = cpu_avx512_kernel_ok() && std::getenv("STRATA_NO_NVFP4_512") == nullptr;
     if (f.gu_type == kNvfp4Type && nvfp4_512 && nvfp4_512_fits(n)) {
         nvfp4_512_gu_rows(blob, f.gu_row, f.up_off, n, act, nt, ff, r0, r1, sg, su);
         return;
@@ -274,7 +274,7 @@ void native_down_rows(const NativeFmt& f, const uint8_t* blob, const void* const
     const int n = (int) f.n_ff;
     float sd = 1.f;                                   // NVFP4: the expert's s_down (see native_gu_rows)
     if (f.tail_off) std::memcpy(&sd, blob + f.tail_off + 2 * sizeof(float), sizeof sd);
-    static const bool nvfp4_512 = cpu_avx512_ok() && std::getenv("STRATA_NO_NVFP4_512") == nullptr;
+    static const bool nvfp4_512 = cpu_avx512_kernel_ok() && std::getenv("STRATA_NO_NVFP4_512") == nullptr;
     if (f.d_type == kNvfp4Type && nvfp4_512 && nvfp4_512_fits(n)) {
         nvfp4_512_rows(blob + f.down_off, f.d_row, n, hq, nt, out, r0, r1, sd);
         return;

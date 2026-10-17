@@ -120,11 +120,24 @@ void quantize_oracle_q8_0(const float* x, int n, ActQ& a) {
 ///
 /// The result is the 32 codes of ONE ACTIVATION CHUNK (4 qword lanes), which is the unit the Q8_1 scale is
 /// defined on - not the 64-weight block.
+/// Skylake-X variant: VPMULTISHIFTQB (AVX512-VBMI) emulated with per-qword shifts.
+/// Byte i of the qword lane = (u16_i >> 2i) & 0xFF, then AND 3 — same codes, same order.
 inline __m256i unpack_q2_0(const uint8_t* codes) {
     const __m128i packed = _mm_loadl_epi64((const __m128i*) codes);   // 8 bytes -> 4 u16 in the low half
     const __m256i lanes = _mm256_cvtepu16_epi64(packed);              // 4 qwords, 8 codes each
-    const __m256i ctrl = _mm256_set1_epi64x((long long) 0x0E0C0A0806040200ULL);
-    return _mm256_and_si256(_mm256_multishift_epi64_epi8(ctrl, lanes), _mm256_set1_epi8(3));
+    const __m256i m3 = _mm256_set1_epi8(3);
+    const __m256i b0 = _mm256_slli_epi64(lanes, 14);                  // u16_0 << 14
+    const __m256i b1 = _mm256_srli_epi64(lanes, 2);                   // u16_1 >> 2
+    const __m256i b2 = _mm256_srli_epi64(lanes, 6);
+    const __m256i b3 = _mm256_srli_epi64(lanes, 10);
+    const __m256i b4 = _mm256_slli_epi64(lanes, 10);                  // u16_4 << 10
+    const __m256i b5 = _mm256_srli_epi64(lanes, 4);
+    const __m256i b6 = _mm256_srli_epi64(lanes, 8);
+    const __m256i b7 = _mm256_srli_epi64(lanes, 12);                  // u16_7 >> 12
+    __m256i r = _mm256_or_si256(_mm256_or_si256(b0, b1), _mm256_or_si256(b2, b3));
+    r = _mm256_or_si256(r, _mm256_or_si256(b4, b5));
+    r = _mm256_or_si256(r, _mm256_or_si256(b6, b7));
+    return _mm256_and_si256(r, m3);
 }
 
 /// 32 codes against 32 int8 activations. Codes 0 contribute nothing to `sum(c*xhat)`, so the zero lanes the
@@ -150,11 +163,22 @@ inline float hsum_ps(__m256 v) {
 // use this kernel, so speculative decode still reproduces plain decode exactly.
 static const bool kZmm = std::getenv("STRATA_CPU_YMM") == nullptr;
 
+/// Skylake-X variant: VPMULTISHIFTQB (AVX512-VBMI) emulated with per-qword shifts (see unpack_q2_0).
 inline __m512i unpack64_q2_0(const uint8_t* codes) {
     const __m128i packed = _mm_loadu_si128((const __m128i*) codes);          // 8 u16 = 64 codes
     const __m512i lanes = _mm512_cvtepu16_epi64(packed);                    // 8 qwords, 8 codes each
-    const __m512i ctrl = _mm512_set1_epi64((long long) 0x0E0C0A0806040200ULL);
-    return _mm512_and_si512(_mm512_multishift_epi64_epi8(ctrl, lanes), _mm512_set1_epi8(3));
+    const __m512i b0 = _mm512_slli_epi64(lanes, 14);
+    const __m512i b1 = _mm512_srli_epi64(lanes, 2);
+    const __m512i b2 = _mm512_srli_epi64(lanes, 6);
+    const __m512i b3 = _mm512_srli_epi64(lanes, 10);
+    const __m512i b4 = _mm512_slli_epi64(lanes, 10);
+    const __m512i b5 = _mm512_srli_epi64(lanes, 4);
+    const __m512i b6 = _mm512_srli_epi64(lanes, 8);
+    const __m512i b7 = _mm512_srli_epi64(lanes, 12);
+    __m512i r = _mm512_or_si512(_mm512_or_si512(b0, b1), _mm512_or_si512(b2, b3));
+    r = _mm512_or_si512(r, _mm512_or_si512(b4, b5));
+    r = _mm512_or_si512(r, _mm512_or_si512(b6, b7));
+    return _mm512_and_si512(r, _mm512_set1_epi8(3));
 }
 
 // For blocks [b0, b0+nb) (nb <= 8): p[2i+h] = d_{b0+i} * xscale[2(b0+i)+h], dd[2i+h] = d_{b0+i}.
